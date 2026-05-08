@@ -41,10 +41,10 @@ void sincronizarDadosEEPROM();
 
 // --- A NOSSA ARMA SECRETA ---
 // Esta função envia o comando e LÊ a frase exata que o chip responder
-String enviaComando(String comando, const int timeout) {
+String enviaComando(String comando, const unsigned long timeout) {
   String resposta = "";
   espSerial.print(comando + "\r\n");
-  long int tempoLimit = millis() + timeout;
+  unsigned long tempoLimit = millis() + timeout;
   
   while (tempoLimit > millis()) {
     while (espSerial.available()) {
@@ -184,8 +184,8 @@ void salvarNaEEPROM(float valor, uint32_t timestamp) {
 // Gera os registros em ordem cronológica e envia por callback
 void forEachEepromRecord(void (*cb)(float, uint32_t)) {
   if (eep_count == 0) return;
-  int start = (eep_head + MAX_RECORDS - eep_count) % MAX_RECORDS;
-  for (int i = 0; i < eep_count; ++i) {
+  uint16_t start = (eep_head + MAX_RECORDS - eep_count) % MAX_RECORDS;
+  for (uint16_t i = 0; i < eep_count; ++i) {
     int pos = (start + i) % MAX_RECORDS;
     int addr = DATA_START + pos * RECORD_SIZE;
     float v = 0.0;
@@ -281,8 +281,8 @@ void sincronizarDadosEEPROM() {
   Serial.println(F("[EEPROM] Sincronizando dados..."));
 
   // Simpler approach: iterate and send one-by-one; if any fails, abort and keep buffer
-  int start = (eep_head + MAX_RECORDS - eep_count) % MAX_RECORDS;
-  for (int i = 0; i < eep_count; ++i) {
+  uint16_t start = (eep_head + MAX_RECORDS - eep_count) % MAX_RECORDS;
+  for (uint16_t i = 0; i < eep_count; ++i) {
     int pos = (start + i) % MAX_RECORDS;
     int addr = DATA_START + pos * RECORD_SIZE;
     float v = 0.0;
