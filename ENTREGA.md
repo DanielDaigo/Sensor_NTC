@@ -2,35 +2,39 @@
 
 ## Visão geral
 
-Projeto de telemetria com leitura de sensor NTC de 10k usando Arduino com ESP8266 via AT commands.
+Projeto de telemetria com leitura de sensor NTC de 10k usando Arduino Uno com ESP-01S em modo AT.
+
+## Referência arquitetural
+
+Para detalhes completos da arquitetura tolerante a falhas, consulte o [registro arquitetural](registro_arquitetural.md). Este documento resume o estado final do sistema sem repetir as decisões de engenharia.
 
 ## Arquitetura
 
 - Sensor NTC em `A0`.
-- Arduino/ESP8266 faz o processamento e a comunicação Wi-Fi.
-- Blynk é usado para visualização em tempo real.
-- Uma API FastAPI na Vercel recebe as leituras e grava no Firestore.
+- Arduino Uno/ESP-01S faz o processamento e a comunicação Wi-Fi.
+- O firmware usa TCP puro na porta 80 para publicar no ThingSpeak.
+- O ThingSpeak atua como painel de borda e relay para o backend.
+- O backend FastAPI na Vercel recebe `idade_segundos` e grava no Firestore.
 - A EEPROM funciona como fila offline quando não há internet.
 
 ## Fluxo de dados
 
 ### Operação online
 
-1. O firmware lê a temperatura a cada 5 segundos.
-2. A leitura é enviada ao Blynk.
-3. A mesma leitura é enviada ao backend na Vercel.
-4. O backend grava o documento na coleção `telemetria` do Firestore.
+1. O firmware lê a temperatura e publica no ThingSpeak.
+2. O ThingSpeak encaminha o dado para o backend por webhook.
+3. O backend grava o documento na coleção `telemetria` do Firestore.
 
 ### Operação offline
 
 1. O firmware tenta reconectar ao hotspot.
-2. Se continuar sem rede, grava a temperatura na EEPROM a cada 30 minutos.
-3. Cada registro guarda temperatura e timestamp local.
-4. Quando a conexão volta, os dados são reenviados com `origem=offline_sync`.
+2. Se continuar sem rede, grava a temperatura na EEPROM no máximo a cada 10 minutos.
+3. Cada registro guarda temperatura e `millis()` do instante da falha.
+4. Quando a conexão volta, os dados são reenviados com idade retroativa calculada em `idade_segundos`.
 
 ## Backend
 
-O backend está documentado em `BACKEND.md` e usa:
+O backend está documentado no repositório próprio e usa:
 
 - FastAPI
 - Firebase Admin
@@ -40,23 +44,26 @@ O backend está documentado em `BACKEND.md` e usa:
 Endpoint atual:
 
 - `GET /update`
+- `POST /update`
 
 Parâmetros usados pelo firmware:
 
 - `temp`
-- `timestamp`
+- `idade_segundos`
 - `origem`
 - `dispositivo`
 
 ## Estado final do firmware
 
 - Compila com PlatformIO.
-- Mantém Blynk.
+- Usa ThingSpeak como relay e painel de borda.
 - Grava e sincroniza dados offline via EEPROM.
-- Envia metadados para o backend com origem da leitura.
+- Envia `field1` com temperatura e `field2` com idade do dado.
+- Mantém `thingspeak_relay` como origem lógica esperada no fluxo normal.
 
 ## Observações
 
-- Intervalo online: 5 segundos.
-- Intervalo offline: 30 minutos.
-- O Firestore também grava o horário UTC do servidor.
+- Intervalo de leitura atual: 20 segundos.
+- Intervalo offline de gravação: 10 minutos.
+- O descarregamento da fila respeita o rate limit de 15 segundos do ThingSpeak.
+- O Firestore grava o horário UTC do servidor e reconstrói o timestamp quando `idade_segundos` é informado.
