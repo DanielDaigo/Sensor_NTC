@@ -1,67 +1,51 @@
-# Sensor NTC com ESP-01S, ThingSpeak, EEPROM e backend na Vercel
+# Sensor NTC com ESP-01S, MQTT, InfluxDB e Grafana
 
-Projeto de telemetria para leitura de um sensor NTC de 10k usando Arduino Uno com ESP-01S em modo AT.
+Projeto de telemetria para leitura de um sensor NTC de 10k usando Arduino Uno com ESP-01S em modo AT. Arquitetura distribuída com MQTT broker local, persistência em InfluxDB e visualização em Grafana Cloud.
 
 ## Visão geral
 
 O firmware faz o seguinte:
 
 - lê a temperatura no pino `A0`;
-- envia a leitura para o ThingSpeak usando TCP puro na porta 80;
-- usa o ThingSpeak como painel de borda e relay para o backend;
+- publica a leitura para um broker MQTT via comandos AT (AT+MQTTPUB);
+- usa tópico estruturado: `sensores/{device_id}/temperatura`;
 - grava leituras na EEPROM quando a rede cai;
 - recalcula a idade do dado e descarrega a fila offline quando a conexão volta.
 
 ## Comportamento atual
 
-- Quando há internet:
-  - lê a temperatura e publica no ThingSpeak em HTTP puro;
-  - envia `field1` com a temperatura e `field2` com a idade do dado em segundos;
+- Quando há internet (MQTT conectado):
+  - lê a temperatura e publica no broker MQTT;
+  - envia payload JSON: `{"t": 23.45, "i": 0, "d": "marica_x"}` (temperatura, idade em segundos, device_id);
   - descarrega qualquer fila offline antes de enviar a leitura atual.
 - Quando está offline:
   - tenta reconectar ao hotspot;
   - grava na EEPROM no máximo uma vez a cada 10 minutos;
   - preserva a fila até o retorno da conectividade.
 
-## Backend
+## Stack de Ingestão e Visualização
 
-O backend fica em outro projeto e usa:
+O stack completo roda na VM Oracle Cloud Always Free:
 
-- FastAPI
-- Firebase Admin
-- Firestore
-- Vercel
+- **Mosquitto:** Broker MQTT na porta 1883, aguardando publicações do firmware (tópico: `sensores/{device_id}/temperatura`).
+- **Bridge Python:** Serviço systemd que assina o tópico MQTT wildcard `sensores/+/temperatura`, interpreta o JSON e grava em InfluxDB.
+- **InfluxDB v1:** Banco de dados de séries temporais. Database: `telemetria`, measurement: `temperatura`, com tags `dispositivo` e fields `valor` + `idade_segundos`.
+- **Grafana Cloud Free:** Dashboard externo que consome dados do InfluxDB via HTTP (porta 8086).
 
-O endpoint atual é:
-
-- `GET /update`
-- `POST /update`
-
-Parâmetros aceitos:
-
-- `temp` - temperatura lida pelo sensor;
-- `idade_segundos` - idade do dado em segundos, opcional;
-- `origem` - origem lógica da leitura, opcional;
-- `dispositivo` - identificador lógico do sensor, opcional.
-
-Se `idade_segundos` for maior que zero, a API subtrai esse valor do relógio UTC do servidor para gerar o timestamp retroativo exato no Firestore.
-
-A origem esperada para o fluxo normal é `thingspeak_relay`, recebida a partir do webhook do ThingSpeak.
-
-Os dados são gravados na coleção `telemetria` do Firestore.
-
-Para detalhes completos da arquitetura tolerante a falhas, consulte o [registro arquitetural](registro_arquitetural.md).
+Para detalhes completos de configuração, credenciais e contrato de dados, consulte [dicionario.md](../dicionario.md) e [plan.md](../plan.md).
 
 ## Arquitetura
 
 ```text
-Sensor NTC -> Arduino Uno/ESP-01S -> ThingSpeak -> Webhook -> Backend Vercel -> Firestore
-                               └----> EEPROM quando offline
+Sensor NTC -> Arduino Uno/ESP-01S -> Mosquitto Broker -> Bridge Python -> InfluxDB -> Grafana Cloud
+                               └────────────── EEPROM quando offline ──────────────┘
 ```
 
 ## Arquivos principais
 
-- `src/main.cpp` - firmware principal.
+- `src/main.cpp` - firmware principal com MQTT.
+- `src/secrets.h` - credenciais locais (ignorado pelo git).
+- `src/secrets_example.h` - template de credenciais.
 - `platformio.ini` - configuração do PlatformIO.
 
 ## Requisitos
@@ -70,8 +54,8 @@ Sensor NTC -> Arduino Uno/ESP-01S -> ThingSpeak -> Webhook -> Backend Vercel -> 
 - Arduino compatível com ESP8266 via AT
 - Sensor NTC 10k
 - Hotspot Wi-Fi
-- Projeto Vercel com API FastAPI configurada para o Firestore
-- ThingSpeak configurado como relay e painel de borda
+- VM Oracle Cloud (Always Free) com Mosquitto, InfluxDB, Bridge Python (conforme [plan.md](../plan.md))
+- Grafana Cloud Free (conta gratuita)
 
 ## Como compilar
 
@@ -81,14 +65,27 @@ C:\Users\danie\.platformio\penv\Scripts\platformio.exe run
 
 ## Como testar
 
-1. Abra o monitor serial em 9600.
-2. Ligue o hotspot e confirme o envio para o ThingSpeak e o webhook do backend.
-3. Desligue a rede e aguarde o firmware registrar valores na EEPROM.
-4. Refaça a conexão e confirme o descarregamento da fila offline com idade do dado retroativa.
+1. **Setup local:** Configure `src/secrets.h` com a credencial MQTT e IP da VM Oracle.
+2. **Compilar:** `platformio run`
+3. **Flash e monitore:**
+   - Conecte Arduino + ESP-01S
+   - Abra monitor serial em 9600 baud
+   - Confirme a conexão ao hotspot e ao broker MQTT
+4. **Validar publicação:**
+   - Na VM Oracle, rode: `mosquitto_sub -h localhost -p 1883 -u sensor_user -P senha_iot_123 -t "sensores/#" -v`
+   - Veja as mensagens JSON sendo publicadas
+5. **Teste offline:**
+   - Desligue a rede do Arduino (desconecte hotspot)
+   - Aguarde o firmware registrar valores na EEPROM (a cada 10 minutos)
+   - Reconecte e confirme o descarregamento da fila com `idade_segundos > 0`
+6. **Validar InfluxDB:**
+   - Na VM: `curl -G 'http://localhost:8086/query' --data-urlencode "db=telemetria" --data-urlencode "u=grafana_user" --data-urlencode "p=GrafanaPass789" --data-urlencode "q=SELECT * FROM temperatura LIMIT 10"`
+7. **Dashboard Grafana:** Acesse sua stack Grafana Cloud e visualize o painel com últimas leituras
 
 ## Observações
 
 - O intervalo de leitura continua em 20 segundos no firmware atual.
 - O intervalo offline para gravação na EEPROM é de 10 minutos.
-- A sincronização offline respeita o rate limit de 15 s do ThingSpeak.
-- A comunicação com o ThingSpeak usa TCP puro na porta 80 para economizar RAM no ESP-01S.
+- A comunicação com o broker MQTT usa TCP puro na porta 1883 (sem TLS) para economizar RAM no ESP-01S.
+- O payload JSON é compacto (`{"t": 23.45, "i": 0, "d": "marica_x"}`) para respeitar o limite de 256 bytes do AT+MQTTPUB.
+- A sincronização offline preserva `idade_segundos` para reconstruir timestamps retroativos no InfluxDB.
