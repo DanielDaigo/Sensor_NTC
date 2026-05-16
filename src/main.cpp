@@ -10,12 +10,12 @@ SoftwareSerial espSerial(2, 3);
 const char* ssid = SECRET_SSID; 
 const char* password = SECRET_PASS;
 
-// ThingSpeak removed — use MQTT broker instead
+// MQTT Broker Config (ThingSpeak removido)
 const char* mqttBroker = SECRET_MQTT_BROKER;
 const int mqttPort = SECRET_MQTT_PORT;
 const char* mqttUser = SECRET_MQTT_USER;
 const char* mqttPass = SECRET_MQTT_PASS;
-const char* deviceId = SECRET_DEVICE_ID;
+const char* deviceId = SECRET_DEVICE_ID; 
 
 const int pinoSensor = A0;
 const float resistorFixo = 10000.0;
@@ -90,17 +90,12 @@ void salvarDadosOffline(float temp) {
 }
 
 void publicarMQTT(float temp, unsigned long idadeSegundos) {
-  // Payload compacto conforme contrato: { "t": 23.45, "i": 0, "d": "marica_x" }
-  String topic = String("sensores/") + String(deviceId) + String("/temperatura");
-  String payload = "{";
-  payload += "\"t\":" + String(temp, 2) + ",";
-  payload += "\"i\":" + String(idadeSegundos) + ",";
-  payload += "\"d\":\"" + String(deviceId) + "\"";
-  payload += "}";
-
-  String cmd = "AT+MQTTPUB=\"" + topic + "\",\"" + payload + "\",1,0";
-
-  enviaComando(cmd, 3000);
+    // Payload compacto: {"t":23.45,"i":0,"d":"marica_x"}
+    String topic = String("sensores/") + String(deviceId) + String("/temperatura");
+    String payload = "{\"t\":" + String(temp, 2) + ",\"i\":" + String(idadeSegundos) + ",\"d\":\"" + String(deviceId) + "\"}";
+    
+    String cmd = "AT+MQTTPUB=\"" + topic + "\",\"" + payload + "\",1,0";
+    enviaComando(cmd, 3000);
 }
 
 void setup() {
@@ -165,9 +160,9 @@ void loop() {
         
         Serial.print(F("Dado offline: ")); Serial.print(regAtrasado.temperatura);
         Serial.print(F(" | Idade: ")); Serial.print(idadeSegundos); Serial.println(F(" segundos atras."));
-
+        
         publicarMQTT(regAtrasado.temperatura, idadeSegundos);
-        delay(500); // pequena pausa entre publicacoes
+        delay(500); // pausa entre publicações MQTT
       }
       
       EEPROM.write(ENDERECO_CONTADOR, 0); // Limpa a fila
