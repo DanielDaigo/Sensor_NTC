@@ -10,8 +10,12 @@ SoftwareSerial espSerial(2, 3);
 const char* ssid = SECRET_SSID; 
 const char* password = SECRET_PASS;
 
-const String host = "api.thingspeak.com";
-const String apiKey = SECRET_TS_API_KEY; 
+// ThingSpeak removed — use MQTT broker instead
+const char* mqttBroker = SECRET_MQTT_BROKER;
+const int mqttPort = SECRET_MQTT_PORT;
+const char* mqttUser = SECRET_MQTT_USER;
+const char* mqttPass = SECRET_MQTT_PASS;
+const char* deviceId = SECRET_DEVICE_ID;
 
 const int pinoSensor = A0;
 const float resistorFixo = 10000.0;
@@ -85,14 +89,18 @@ void salvarDadosOffline(float temp) {
   }
 }
 
-void enviarParaNuvem(float temp, unsigned long idadeSegundos) {
-    String url = "/update?api_key=" + apiKey + "&field1=" + String(temp, 2) + "&field2=" + String(idadeSegundos);
-    String requisicao = "GET " + url + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n\r\n";
-    String cmdSend = "AT+CIPSEND=" + String(requisicao.length());
-    
-    enviaComando(cmdSend, 2000); 
-    enviaComando(requisicao, 5000); 
-    enviaComando("AT+CIPCLOSE", 1000);
+void publicarMQTT(float temp, unsigned long idadeSegundos) {
+  // Payload compacto conforme contrato: { "t": 23.45, "i": 0, "d": "marica_x" }
+  String topic = String("sensores/") + String(deviceId) + String("/temperatura");
+  String payload = "{";
+  payload += "\"t\":" + String(temp, 2) + ",";
+  payload += "\"i\":" + String(idadeSegundos) + ",";
+  payload += "\"d\":\"" + String(deviceId) + "\"";
+  payload += "}";
+
+  String cmd = "AT+MQTTPUB=\"" + topic + "\",\"" + payload + "\",1,0";
+
+  enviaComando(cmd, 3000);
 }
 
 void setup() {
@@ -129,9 +137,9 @@ void loop() {
 
   Serial.print(F("Temperatura atual: ")); Serial.print(tempAtual); Serial.println(F(" C"));
 
-  String respTCP = enviaComando("AT+CIPSTART=\"TCP\",\"" + host + "\",80", 5000);
+  String respMQTT = enviaComando("AT+MQTTCONN?", 2000);
 
-  if (respTCP.indexOf("CONNECT") != -1 || respTCP.indexOf("OK") != -1) {
+  if (respMQTT.indexOf("+MQTTCONNECTED") != -1) {
     Serial.println(F("[REDE] Conectado a internet."));
     redeEstavaOffline = false; // Reseta o estado de rede
 
@@ -157,20 +165,18 @@ void loop() {
         
         Serial.print(F("Dado offline: ")); Serial.print(regAtrasado.temperatura);
         Serial.print(F(" | Idade: ")); Serial.print(idadeSegundos); Serial.println(F(" segundos atras."));
-        
-        enviaComando("AT+CIPSTART=\"TCP\",\"" + host + "\",80", 4000);
-        enviarParaNuvem(regAtrasado.temperatura, idadeSegundos);
-        delay(16000); // Respeita Rate Limit do ThingSpeak
+
+        publicarMQTT(regAtrasado.temperatura, idadeSegundos);
+        delay(500); // pequena pausa entre publicacoes
       }
       
       EEPROM.write(ENDERECO_CONTADOR, 0); // Limpa a fila
       Serial.println(F("[SYNC] Memoria limpa. Sincronizacao concluida."));
-      enviaComando("AT+CIPSTART=\"TCP\",\"" + host + "\",80", 4000);
     }
 
     // 2. ENVIA O DADO ATUAL (Idade 0)
-    Serial.println(F("Enviando pacote HTTP em tempo real..."));
-    enviarParaNuvem(tempAtual, 0);
+    Serial.println(F("Publicando pacote MQTT em tempo real..."));
+    publicarMQTT(tempAtual, 0);
 
   } else {
     Serial.println(F("[REDE] ERRO TCP. Sem internet."));
