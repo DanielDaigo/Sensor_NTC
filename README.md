@@ -1,94 +1,63 @@
-# Sensor NTC com ESP-01S, ThingSpeak, EEPROM e backend na Vercel
+# Termômetro IoT Fase 4
 
-Projeto de telemetria para leitura de um sensor NTC de 10k usando Arduino Uno com ESP-01S em modo AT.
+Sistema de telemetria térmica com nó de borda em Arduino/ESP-01S, API Python na Oracle Cloud, persistência em InfluxDB e visualização em Grafana.
 
-## Visão geral
+Status atual: Fase 4 consolidada. A arquitetura definitiva elimina os caminhos antigos de Vercel, Firestore e ThingSpeak e passa a operar com ingestão direta, bufferização local em EEPROM e sincronização retroativa quando a rede retorna.
 
-O firmware faz o seguinte:
+## Visão rápida
 
-- lê a temperatura no pino `A0`;
-- envia a leitura para o ThingSpeak usando TCP puro na porta 80;
-- usa o ThingSpeak como painel de borda e relay para o backend;
-- grava leituras na EEPROM quando a rede cai;
-- recalcula a idade do dado e descarrega a fila offline quando a conexão volta.
+- Sensor NTC de 10 kΩ no firmware principal
+- Conversão local da temperatura na borda
+- Fallback em EEPROM quando a conectividade cai
+- API Python para ingestão na Oracle Cloud
+- Armazenamento em séries temporais com retenção de longo prazo
+- Painéis no Grafana para operação e demonstração
 
-## Comportamento atual
+## Estrutura principal
 
-- Quando há internet:
-  - lê a temperatura e publica no ThingSpeak em HTTP puro;
-  - envia `field1` com a temperatura e `field2` com a idade do dado em segundos;
-  - descarrega qualquer fila offline antes de enviar a leitura atual.
-- Quando está offline:
-  - tenta reconectar ao hotspot;
-  - grava na EEPROM no máximo uma vez a cada 10 minutos;
-  - preserva a fila até o retorno da conectividade.
+- [src/main.cpp](src/main.cpp) - firmware principal do sensor
+- [platformio.ini](platformio.ini) - configuração do PlatformIO
+- API Python hospedada na Oracle Cloud - serviço de ingestão da Fase 4
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - registro técnico definitivo
+- [docs/GUIA_DIDATICO.md](docs/GUIA_DIDATICO.md) - explicação didática para banca e leigos
 
-## Backend
+## Como buildar o firmware
 
-O backend fica em outro projeto e usa:
-
-- FastAPI
-- Firebase Admin
-- Firestore
-- Vercel
-
-O endpoint atual é:
-
-- `GET /update`
-- `POST /update`
-
-Parâmetros aceitos:
-
-- `temp` - temperatura lida pelo sensor;
-- `idade_segundos` - idade do dado em segundos, opcional;
-- `origem` - origem lógica da leitura, opcional;
-- `dispositivo` - identificador lógico do sensor, opcional.
-
-Se `idade_segundos` for maior que zero, a API subtrai esse valor do relógio UTC do servidor para gerar o timestamp retroativo exato no Firestore.
-
-A origem esperada para o fluxo normal é `thingspeak_relay`, recebida a partir do webhook do ThingSpeak.
-
-Os dados são gravados na coleção `telemetria` do Firestore.
-
-Para detalhes completos da arquitetura tolerante a falhas, consulte o [registro arquitetural](registro_arquitetural.md).
-
-## Arquitetura
-
-```text
-Sensor NTC -> Arduino Uno/ESP-01S -> ThingSpeak -> Webhook -> Backend Vercel -> Firestore
-                               └----> EEPROM quando offline
-```
-
-## Arquivos principais
-
-- `src/main.cpp` - firmware principal.
-- `platformio.ini` - configuração do PlatformIO.
-
-## Requisitos
-
-- PlatformIO
-- Arduino compatível com ESP8266 via AT
-- Sensor NTC 10k
-- Hotspot Wi-Fi
-- Projeto Vercel com API FastAPI configurada para o Firestore
-- ThingSpeak configurado como relay e painel de borda
-
-## Como compilar
+1. Abra a pasta `Sensor_NTC` no PlatformIO.
+2. Ajuste `src/secrets.h` com SSID, senha e chave da API.
+3. Compile o projeto:
 
 ```powershell
-C:\Users\danie\.platformio\penv\Scripts\platformio.exe run
+platformio run
 ```
 
-## Como testar
+4. Faça upload para a placa, se necessário:
 
-1. Abra o monitor serial em 9600.
-2. Ligue o hotspot e confirme o envio para o ThingSpeak e o webhook do backend.
-3. Desligue a rede e aguarde o firmware registrar valores na EEPROM.
-4. Refaça a conexão e confirme o descarregamento da fila offline com idade do dado retroativa.
+```powershell
+platformio run --target upload
+```
+
+5. Abra o monitor serial para acompanhar a leitura e o envio.
+
+## Como rodar a API localmente
+
+O serviço Python da Fase 4 é publicado na Oracle Cloud e não depende mais de uma pasta local neste workspace.
+
+```powershell
+curl http://seu-endpoint-oracle/api/health
+```
+
+## Fluxo operacional
+
+1. O sensor lê a temperatura.
+2. O firmware converte o valor localmente.
+3. Se a rede estiver disponível, o dado é enviado imediatamente.
+4. Se a rede cair, a leitura entra em fila na EEPROM.
+5. Ao reconectar, a fila é descarregada com reconstrução temporal.
+6. O back-end grava a telemetria e o Grafana mostra a evolução.
 
 ## Observações
 
-- O intervalo de leitura continua em 20 segundos no firmware atual.
-- O intervalo offline para gravação na EEPROM é de 10 minutos.
-- A sincronização offline respeita o rate limit de 15 s do ThingSpeak.
-- A comunicação com o ThingSpeak usa TCP puro na porta 80 para economizar RAM no ESP-01S.
+- O código do sensor trabalha com o intervalo de leitura definido no firmware.
+- O diretório `src/secrets.h` não deve ser versionado.
+- Os documentos históricos antigos foram substituídos pela documentação consolidada em `docs/`.
