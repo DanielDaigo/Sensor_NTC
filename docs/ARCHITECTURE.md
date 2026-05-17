@@ -85,12 +85,18 @@ O acesso público controlado usa modo anônimo somente como visualização, com 
 O firmware envia um payload enxuto com três campos essenciais:
 
 ```json
-{
-  "device_id": "marica_x",
-  "valor": 25.57,
-  "idade_segundos": 1421
-}
+{ "t": 25.57, "i": 1421, "d": "marica_x" }
 ```
+
+| Chave | Tipo    | Descrição                                                        |
+| ----- | ------- | ---------------------------------------------------------------- |
+| t     | float   | Temperatura em Celsius                                           |
+| i     | integer | Idade do dado em segundos (importante para reconstrução offline) |
+| d     | string  | Device ID do dispositivo sensor                                  |
+
+As chaves curtas (`t`, `i`, `d`) em vez de nomes descritivos têm o objetivo de prevenir o estouro de buffer do comando AT+CIPSEND durante a transmissão, mantendo o payload compacto mesmo em condições de conectividade limitada.
+
+A chave de autenticação (`X-API-Key`) é consumida de forma modular através do `secrets.h`, sendo injetada no cabeçalho HTTP via cofre de segredos Infisical.
 
 Esse formato é suficiente para reconstruir o momento real da leitura, mesmo que ela tenha sido capturada offline.
 

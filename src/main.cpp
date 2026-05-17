@@ -7,12 +7,12 @@
 SoftwareSerial espSerial(2, 3);
 
 // --- CONFIGURAÇÕES GERAIS (Atualizadas para a Oracle) ---
-const char* ssid = WIFI_SSID; 
-const char* password = WIFI_PASS;
+const char* ssid = SECRET_SSID; 
+const char* password = SECRET_PASS;
 
 const String host = "136.248.96.131"; // IP da sua máquina Ubuntu
 const String porta = "5000";          // Porta da API Python
-const String deviceId = "marica_x";   // Identificador do dispositivo
+const String deviceId = SECRET_DEVICE_ID;   // Identificador do dispositivo
 
 const int pinoSensor = A0;
 const float resistorFixo = 10000.0;
@@ -95,7 +95,7 @@ void enviarParaNuvem(float temp, unsigned long idadeSegundos) {
     String requisicao = "POST /api/telemetria HTTP/1.1\r\n";
     requisicao += "Host: " + host + "\r\n";
     requisicao += "Content-Type: application/json\r\n";
-    requisicao += "X-API-Key: " + String(API_KEY) + "\r\n"; // Injeção da chave do Infisical
+    requisicao += "X-API-Key: " + String(SECRET_API_KEY) + "\r\n"; // Injeção da chave do Infisical
     requisicao += "Content-Length: " + String(jsonPayload.length()) + "\r\n";
     requisicao += "Connection: close\r\n\r\n";
     requisicao += jsonPayload;
