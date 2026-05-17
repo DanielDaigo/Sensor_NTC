@@ -6,16 +6,13 @@
 
 SoftwareSerial espSerial(2, 3);
 
-// --- CONFIGURAÇÕES GERAIS ---
-const char* ssid = SECRET_SSID; 
-const char* password = SECRET_PASS;
+// --- CONFIGURAÇÕES GERAIS (Atualizadas para a Oracle) ---
+const char* ssid = WIFI_SSID; 
+const char* password = WIFI_PASS;
 
-// MQTT Broker Config (ThingSpeak removido)
-const char* mqttBroker = SECRET_MQTT_BROKER;
-const int mqttPort = SECRET_MQTT_PORT;
-const char* mqttUser = SECRET_MQTT_USER;
-const char* mqttPass = SECRET_MQTT_PASS;
-const char* deviceId = SECRET_DEVICE_ID; 
+const String host = "136.248.96.131"; // IP da sua máquina Ubuntu
+const String porta = "5000";          // Porta da API Python
+const String deviceId = "marica_x";   // Identificador do dispositivo
 
 const int pinoSensor = A0;
 const float resistorFixo = 10000.0;
@@ -34,7 +31,7 @@ const byte ASSINATURA_FORMATACAO = 0x42;
 
 // --- CONTROLE DE TEMPO OFFLINE ---
 unsigned long ultimoSalvamentoOffline = 0;
-const unsigned long INTERVALO_OFFLINE = 600000; // 10 minutos em milissegundos (10 * 60 * 1000)
+const unsigned long INTERVALO_OFFLINE = 600000; // 10 minutos
 bool redeEstavaOffline = false;
 
 // --- A NOSSA ARMA SECRETA ---
@@ -89,13 +86,26 @@ void salvarDadosOffline(float temp) {
   }
 }
 
-void publicarMQTT(float temp, unsigned long idadeSegundos) {
-    // Payload compacto: {"t":23.45,"i":0,"d":"marica_x"}
-    String topic = String("sensores/") + String(deviceId) + String("/temperatura");
-    String payload = "{\"t\":" + String(temp, 2) + ",\"i\":" + String(idadeSegundos) + ",\"d\":\"" + String(deviceId) + "\"}";
+// --- O NOVO CORAÇÃO DA COMUNICAÇÃO HTTP ---
+void enviarParaNuvem(float temp, unsigned long idadeSegundos) {
+    // 1. Monta o Payload JSON
+    String jsonPayload = "{\"t\":" + String(temp, 2) + ",\"i\":" + String(idadeSegundos) + ",\"d\":\"" + deviceId + "\"}";
     
-    String cmd = "AT+MQTTPUB=\"" + topic + "\",\"" + payload + "\",1,0";
-    enviaComando(cmd, 3000);
+    // 2. Monta o Cabeçalho HTTP POST (Profissional e Blindado)
+    String requisicao = "POST /api/telemetria HTTP/1.1\r\n";
+    requisicao += "Host: " + host + "\r\n";
+    requisicao += "Content-Type: application/json\r\n";
+    requisicao += "X-API-Key: " + String(API_KEY) + "\r\n"; // Injeção da chave do Infisical
+    requisicao += "Content-Length: " + String(jsonPayload.length()) + "\r\n";
+    requisicao += "Connection: close\r\n\r\n";
+    requisicao += jsonPayload;
+
+    // 3. Avisa ao ESP-01S o tamanho do pacote e dispara
+    String cmdSend = "AT+CIPSEND=" + String(requisicao.length());
+    
+    enviaComando(cmdSend, 2000); 
+    enviaComando(requisicao, 5000); 
+    enviaComando("AT+CIPCLOSE", 1000);
 }
 
 void setup() {
@@ -103,7 +113,7 @@ void setup() {
   espSerial.begin(9600);
   delay(2000); 
 
-  Serial.println(F("\n--- SISTEMA IOT: RESILIENCIA AVANCADA (10 MIN) ---"));
+  Serial.println(F("\n--- SISTEMA IOT: CONECTANDO A ORACLE ---"));
   formatarEEPROM(); 
   
   enviaComando("AT+RST", 4000); 
@@ -132,11 +142,12 @@ void loop() {
 
   Serial.print(F("Temperatura atual: ")); Serial.print(tempAtual); Serial.println(F(" C"));
 
-  String respMQTT = enviaComando("AT+MQTTCONN?", 2000);
+  // Nova conexão TCP apontando para a porta 5000
+  String respTCP = enviaComando("AT+CIPSTART=\"TCP\",\"" + host + "\"," + porta, 5000);
 
-  if (respMQTT.indexOf("+MQTTCONNECTED") != -1) {
+  if (respTCP.indexOf("CONNECT") != -1 || respTCP.indexOf("OK") != -1) {
     Serial.println(F("[REDE] Conectado a internet."));
-    redeEstavaOffline = false; // Reseta o estado de rede
+    redeEstavaOffline = false; 
 
     // 1. VERIFICA SE TEM DADOS ATRASADOS NA EEPROM
     byte dadosAtrasados = EEPROM.read(ENDERECO_CONTADOR);
@@ -159,25 +170,28 @@ void loop() {
         }
         
         Serial.print(F("Dado offline: ")); Serial.print(regAtrasado.temperatura);
-        Serial.print(F(" | Idade: ")); Serial.print(idadeSegundos); Serial.println(F(" segundos atras."));
+        Serial.print(F(" | Idade: ")); Serial.print(idadeSegundos); Serial.println(F(" s atras."));
         
-        publicarMQTT(regAtrasado.temperatura, idadeSegundos);
-        delay(500); // pausa entre publicações MQTT
+        enviaComando("AT+CIPSTART=\"TCP\",\"" + host + "\"," + porta, 4000);
+        enviarParaNuvem(regAtrasado.temperatura, idadeSegundos);
+        
+        // VANTAGEM DO SERVIDOR PRÓPRIO: Sincronização em alta velocidade!
+        delay(2000); 
       }
       
-      EEPROM.write(ENDERECO_CONTADOR, 0); // Limpa a fila
+      EEPROM.write(ENDERECO_CONTADOR, 0); 
       Serial.println(F("[SYNC] Memoria limpa. Sincronizacao concluida."));
+      enviaComando("AT+CIPSTART=\"TCP\",\"" + host + "\"," + porta, 4000);
     }
 
     // 2. ENVIA O DADO ATUAL (Idade 0)
-    Serial.println(F("Publicando pacote MQTT em tempo real..."));
-    publicarMQTT(tempAtual, 0);
+    Serial.println(F("Enviando pacote HTTP em tempo real..."));
+    enviarParaNuvem(tempAtual, 0);
 
   } else {
     Serial.println(F("[REDE] ERRO TCP. Sem internet."));
     unsigned long tempoAtual = millis();
 
-    // Se acabou de cair OU já passou 10 minutos desde o último salvamento
     if (!redeEstavaOffline || (tempoAtual - ultimoSalvamentoOffline >= INTERVALO_OFFLINE)) {
       Serial.println(F("Ativando Resiliencia. Gravando na EEPROM..."));
       salvarDadosOffline(tempAtual);
@@ -192,5 +206,5 @@ void loop() {
   }
 
   Serial.println(F("Aguardando proximo ciclo de leitura...\n"));
-  delay(20000); 
+  delay(5000); 
 }
