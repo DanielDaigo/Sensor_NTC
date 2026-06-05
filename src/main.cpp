@@ -10,8 +10,8 @@ SoftwareSerial espSerial(2, 3);
 const char* ssid = SECRET_SSID; 
 const char* password = SECRET_PASS;
 
-const String host = "136.248.96.131"; // IP da sua máquina Ubuntu
-const String porta = "5000";          // Porta da API Python
+const String host = "136.248.96.131";       // IP da máquina Ubuntu
+const String porta = "5000";                // Porta da API Python
 const String deviceId = SECRET_DEVICE_ID;   // Identificador do dispositivo
 
 const int pinoSensor = A0;
@@ -34,7 +34,7 @@ unsigned long ultimoSalvamentoOffline = 0;
 const unsigned long INTERVALO_OFFLINE = 600000; // 10 minutos
 bool redeEstavaOffline = false;
 
-// --- A NOSSA ARMA SECRETA (Agora com saída antecipada!) ---
+// --- A NOSSA ARMA SECRETA (Saída antecipada para rapidez) ---
 String enviaComando(String comando, const int timeout) {
   String resposta = "";
   while (espSerial.available()) { espSerial.read(); } // Limpa o lixo
@@ -47,7 +47,7 @@ String enviaComando(String comando, const int timeout) {
       char c = espSerial.read();
       resposta += c; 
     }
-    // O PULO DO GATO: Se achar a resposta, sai do loop NA HORA!
+    // Se achar a resposta, sai do loop NA HORA!
     if (resposta.indexOf("OK\r\n") != -1 || 
         resposta.indexOf("ERROR\r\n") != -1 || 
         resposta.indexOf("SEND OK\r\n") != -1 ||
@@ -94,12 +94,25 @@ void salvarDadosOffline(float temp) {
   }
 }
 
-// --- O NOVO CORAÇÃO DA COMUNICAÇÃO HTTP (Otimizado para RAM do Uno) ---
+// --- FUNÇÃO DE CONEXÃO WI-FI ---
+void conectarWiFi() {
+  Serial.println(F("[WIFI] Tentando (re)conectar ao roteador..."));
+  String comandoConexao = "AT+CWJAP=\"";
+  comandoConexao += ssid;
+  comandoConexao += "\",\"";
+  comandoConexao += password;
+  comandoConexao += "\"";
+  
+  enviaComando(comandoConexao, 15000); 
+  delay(4000); 
+}
+
+// --- COMUNICAÇÃO HTTP (Otimizado para RAM do Uno) ---
 void enviarParaNuvem(float temp, unsigned long idadeSegundos) {
     // 1. Monta apenas o Payload JSON
     String jsonPayload = "{\"t\":" + String(temp, 2) + ",\"i\":" + String(idadeSegundos) + ",\"d\":\"" + deviceId + "\"}";
     
-    // 2. Calcula o tamanho total da requisição dividindo as linhas (Economiza RAM)
+    // 2. Calcula o tamanho total da requisição dividindo as linhas
     String linha1 = "POST /api/telemetria HTTP/1.1\r\n";
     String linha2 = "Host: " + host + "\r\n";
     String linha3 = "Content-Type: application/json\r\n";
@@ -115,7 +128,6 @@ void enviarParaNuvem(float temp, unsigned long idadeSegundos) {
     enviaComando(cmdSend, 2000); 
     
     // 4. Envia as partes DIRETAMENTE para a porta serial (espSerial)
-    // Usar print() direto evita criar cópias gigantes na memória RAM do Arduino
     espSerial.print(linha1);
     espSerial.print(linha2);
     espSerial.print(linha3);
@@ -124,10 +136,7 @@ void enviarParaNuvem(float temp, unsigned long idadeSegundos) {
     espSerial.print(linha6);
     espSerial.print(jsonPayload);
 
-    // Dá tempo de sobra para o ESP-01S transmitir tudo via Wi-Fi
     delay(1000); 
-    
-    // Fecha a conexão TCP
     enviaComando("AT+CIPCLOSE", 1000);
 }
 
@@ -139,19 +148,14 @@ void setup() {
   Serial.println(F("\n--- SISTEMA IOT: CONECTANDO A ORACLE ---"));
   formatarEEPROM(); 
   
+  EEPROM.write(ENDERECO_CONTADOR, 0); 
+  
   enviaComando("AT+RST", 4000); 
   enviaComando("AT+CWQAP", 1000); 
   enviaComando("AT+CWMODE=1", 1000); 
   enviaComando("AT+CWDHCP_DEF=1,1", 1000); 
   
-  String comandoConexao = "AT+CWJAP=\"";
-  comandoConexao += ssid;
-  comandoConexao += "\",\"";
-  comandoConexao += password;
-  comandoConexao += "\"";
-  
-  Serial.print(F("Conectando ao Wi-Fi..."));
-  enviaComando(comandoConexao, 15000); 
+  conectarWiFi();
 }
 
 void loop() {
@@ -165,10 +169,31 @@ void loop() {
 
   Serial.print(F("Temperatura atual: ")); Serial.print(tempAtual); Serial.println(F(" C"));
 
+  // -------------------------------------------------------------
+  // NOVA INTELIGÊNCIA: Verifica o roteador ANTES de derrubar tudo
+  // -------------------------------------------------------------
+  if (redeEstavaOffline) {
+    Serial.println(F("[WIFI] Checando status do roteador..."));
+    String statusWiFi = enviaComando("AT+CWJAP?", 2000);
+    
+    if (statusWiFi.indexOf(ssid) == -1) {
+      // Se a resposta não contém o nome da sua rede (ssid), o Wi-Fi caiu real.
+      conectarWiFi();
+    } else {
+      // O Wi-Fi está 100%. Pula o conectarWiFi() e foca em recuperar a API!
+      Serial.println(F("[WIFI] Roteador OK. Tentando reconectar a Internet/API..."));
+    }
+  }
+
   // Nova conexão TCP apontando para a porta 5000
   String respTCP = enviaComando("AT+CIPSTART=\"TCP\",\"" + host + "\"," + porta, 5000);
 
-  if (respTCP.indexOf("CONNECT") != -1 || respTCP.indexOf("OK") != -1) {
+  // Filtro Estrito
+  if ((respTCP.indexOf("CONNECT") != -1 || respTCP.indexOf("OK") != -1) && 
+       respTCP.indexOf("ERROR") == -1 && 
+       respTCP.indexOf("FAIL") == -1 && 
+       respTCP.indexOf("WIFI") == -1) {
+       
     Serial.println(F("[REDE] Conectado a internet."));
     redeEstavaOffline = false; 
 
@@ -176,7 +201,7 @@ void loop() {
     byte dadosAtrasados = EEPROM.read(ENDERECO_CONTADOR);
     
     if (dadosAtrasados > 0 && dadosAtrasados <= MAX_REGISTROS) {
-      Serial.print(F("[SYNC] Descarregando ")); Serial.print(dadosAtrasados); Serial.println(F(" registros atrasados..."));
+      Serial.print(F("[SYNC] Descarregando ")); Serial.print(dadosAtrasados); Serial.println(F(" registos atrasados..."));
       
       for (int i = 0; i < dadosAtrasados; i++) {
         Registro regAtrasado;
@@ -198,7 +223,6 @@ void loop() {
         enviaComando("AT+CIPSTART=\"TCP\",\"" + host + "\"," + porta, 4000);
         enviarParaNuvem(regAtrasado.temperatura, idadeSegundos);
         
-        // VANTAGEM DO SERVIDOR PRÓPRIO: Sincronização em alta velocidade!
         delay(2000); 
       }
       
@@ -229,5 +253,5 @@ void loop() {
   }
 
   Serial.println(F("Aguardando proximo ciclo de leitura...\n"));
-  delay(3000); 
+  delay(5000); 
 }
