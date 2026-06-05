@@ -34,10 +34,10 @@ unsigned long ultimoSalvamentoOffline = 0;
 const unsigned long INTERVALO_OFFLINE = 600000; // 10 minutos
 bool redeEstavaOffline = false;
 
-// --- A NOSSA ARMA SECRETA ---
+// --- A NOSSA ARMA SECRETA (Agora com saída antecipada!) ---
 String enviaComando(String comando, const int timeout) {
   String resposta = "";
-  while (espSerial.available()) { espSerial.read(); }
+  while (espSerial.available()) { espSerial.read(); } // Limpa o lixo
   
   espSerial.print(comando + "\r\n");
   unsigned long tempoLimit = millis() + timeout; 
@@ -46,6 +46,14 @@ String enviaComando(String comando, const int timeout) {
     while (espSerial.available()) {
       char c = espSerial.read();
       resposta += c; 
+    }
+    // O PULO DO GATO: Se achar a resposta, sai do loop NA HORA!
+    if (resposta.indexOf("OK\r\n") != -1 || 
+        resposta.indexOf("ERROR\r\n") != -1 || 
+        resposta.indexOf("SEND OK\r\n") != -1 ||
+        resposta.indexOf("CONNECT\r\n") != -1 ||
+        resposta.indexOf("ALREADY CONNECTED") != -1) {
+      break; 
     }
   }
   return resposta;
@@ -86,25 +94,40 @@ void salvarDadosOffline(float temp) {
   }
 }
 
-// --- O NOVO CORAÇÃO DA COMUNICAÇÃO HTTP ---
+// --- O NOVO CORAÇÃO DA COMUNICAÇÃO HTTP (Otimizado para RAM do Uno) ---
 void enviarParaNuvem(float temp, unsigned long idadeSegundos) {
-    // 1. Monta o Payload JSON
+    // 1. Monta apenas o Payload JSON
     String jsonPayload = "{\"t\":" + String(temp, 2) + ",\"i\":" + String(idadeSegundos) + ",\"d\":\"" + deviceId + "\"}";
     
-    // 2. Monta o Cabeçalho HTTP POST (Profissional e Blindado)
-    String requisicao = "POST /api/telemetria HTTP/1.1\r\n";
-    requisicao += "Host: " + host + "\r\n";
-    requisicao += "Content-Type: application/json\r\n";
-    requisicao += "X-API-Key: " + String(SECRET_API_KEY) + "\r\n"; // Injeção da chave do Infisical
-    requisicao += "Content-Length: " + String(jsonPayload.length()) + "\r\n";
-    requisicao += "Connection: close\r\n\r\n";
-    requisicao += jsonPayload;
-
-    // 3. Avisa ao ESP-01S o tamanho do pacote e dispara
-    String cmdSend = "AT+CIPSEND=" + String(requisicao.length());
+    // 2. Calcula o tamanho total da requisição dividindo as linhas (Economiza RAM)
+    String linha1 = "POST /api/telemetria HTTP/1.1\r\n";
+    String linha2 = "Host: " + host + "\r\n";
+    String linha3 = "Content-Type: application/json\r\n";
+    String linha4 = "X-API-Key: " + String(SECRET_API_KEY) + "\r\n";
+    String linha5 = "Content-Length: " + String(jsonPayload.length()) + "\r\n";
+    String linha6 = "Connection: close\r\n\r\n";
     
+    int tamanhoTotal = linha1.length() + linha2.length() + linha3.length() + 
+                       linha4.length() + linha5.length() + linha6.length() + jsonPayload.length();
+
+    // 3. Avisa ao ESP-01S o tamanho exato do pacote que ele vai receber
+    String cmdSend = "AT+CIPSEND=" + String(tamanhoTotal);
     enviaComando(cmdSend, 2000); 
-    enviaComando(requisicao, 5000); 
+    
+    // 4. Envia as partes DIRETAMENTE para a porta serial (espSerial)
+    // Usar print() direto evita criar cópias gigantes na memória RAM do Arduino
+    espSerial.print(linha1);
+    espSerial.print(linha2);
+    espSerial.print(linha3);
+    espSerial.print(linha4);
+    espSerial.print(linha5);
+    espSerial.print(linha6);
+    espSerial.print(jsonPayload);
+
+    // Dá tempo de sobra para o ESP-01S transmitir tudo via Wi-Fi
+    delay(1000); 
+    
+    // Fecha a conexão TCP
     enviaComando("AT+CIPCLOSE", 1000);
 }
 
@@ -206,5 +229,5 @@ void loop() {
   }
 
   Serial.println(F("Aguardando proximo ciclo de leitura...\n"));
-  delay(5000); 
+  delay(3000); 
 }
