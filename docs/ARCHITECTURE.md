@@ -118,7 +118,7 @@ Esse formato é suficiente para reconstruir o momento real da leitura, mesmo que
 
 Atualmente o sistema processa dados oriundos de diferentes frentes de hardware:
 - Dispositivos baseados em **Arduino Uno + ESP-01S** operando via Wi-Fi (Telemetria Térmica NTC).
-- **2 Dispositivos ESP32** operando via rádio **LoRa**, enviando dados de Temperatura e Umidade.
+- **Dispositivos ESP32 com Rádio LoRa P2P**: Um ecossistema à parte (gerenciado em seu próprio repositório) composto por "Nós Cegos" de campo que lêem sensores DHT11 e enviam dados compactados em *Structs Binárias* via rádio LoRa para um "Gateway Inteligente". O Gateway, por sua vez, gerencia a conexão Wi-Fi, sincroniza o tempo via NTP, faz *buffer* offline na memória flash (SPIFFS) e entrega a telemetria com a idade exata (`idade_segundos`) para a API Flask.
 
 ### 9.1 Capacidade Atual e Gargalos
 A infraestrutura em nuvem está alocada em instâncias **Oracle Free Tier (AMD com 1GB de RAM)**. A VM1 (Ingestão/InfluxDB/Grafana) opera com 2GB de Swap, enquanto a VM2 (Django/PostgreSQL) roda sem Swap.
