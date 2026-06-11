@@ -20,9 +20,13 @@ A segunda fase migrou para uma arquitetura serverless e baseada em documentos. O
 
 A terceira fase trouxe um relay comercial com limitação de taxa. Para um sensor que precisa esvaziar fila acumulada após uma queda de rede, isso virou bloqueio técnico.
 
-### Fase 4 - Oracle Cloud com API própria, InfluxDB e Grafana
+### Fase 4 - Oracle Cloud com API própria, InfluxDB e Grafana (VM1)
 
-A fase atual elimina intermediários comerciais e concentra o controle na infraestrutura própria. Isso permite política de firewall dedicada, ingestão direta, descarregamento rápido de dados acumulados e retenção de longo prazo.
+A fase 4 elimina intermediários comerciais e concentra o controle na infraestrutura própria. Isso permite política de firewall dedicada, ingestão direta, descarregamento rápido de dados acumulados e retenção de longo prazo.
+
+### Fase 5 - Portal Administrativo e Dashboard (Django + PostgreSQL na VM2)
+
+A evolução final adiciona uma camada relacional e um painel de administração customizado. Esta fase resolve o problema de governança: o PostgreSQL armazena dados críticos como o cadastro de sensores e chaves de API com segurança, enquanto o Django fornece um Dashboard premium e um painel de controle centralizado.
 
 ## 3. Camada de borda
 
@@ -80,7 +84,17 @@ O painel de valor instantâneo exibe a última temperatura conhecida. O painel d
 
 O acesso público controlado usa modo anônimo somente como visualização, com permissões limitadas ao papel de leitura. Para demonstrações, o dashboard pode ser publicado em modo kiosk e com refresh periódico, sem liberar edição nem acesso administrativo.
 
-## 7. Contrato de dados
+## 7. Camada de Gestão e Segurança (Portal Django)
+
+Enquanto o Grafana serve à visualização crua, o **Portal em Django** age como o cérebro administrativo da operação. Ele gerencia o parque de hardwares e a segurança das comunicações.
+
+### 7.1 Banco Relacional (PostgreSQL)
+As senhas de autenticação de API, regras de bloqueio, usuários e o cadastro do parque de equipamentos em si ficam blindados no PostgreSQL. Se uma chave vazar, o administrador pode revogá-la com um clique no painel, bloqueando imediatamente novas ingestões daquele nó sem afetar os dados históricos.
+
+### 7.2 Dashboard Customizado
+O front-end consulta o InfluxDB para varrer a base de dados em tempo real, agrupando as marcações por hora e despejando-as de forma mastigada para os gráficos na web, proporcionando uma interface visual premium e responsiva.
+
+## 8. Contrato de dados
 
 O firmware envia um payload enxuto com três campos essenciais:
 
@@ -100,6 +114,30 @@ A chave de autenticação (`X-API-Key`) é consumida de forma modular através d
 
 Esse formato é suficiente para reconstruir o momento real da leitura, mesmo que ela tenha sido capturada offline.
 
-## 8. Resultado de engenharia
+## 9. Topologia de Hardware e Escalonamento
 
-O resultado da Fase 4 é um sistema mais previsível, mais controlável e mais barato de operar. A borda faz o trabalho pesado, a rede carrega apenas o necessário, o armazenamento é apropriado para séries temporais e a visualização fica leve para operação e apresentação.
+Atualmente o sistema processa dados oriundos de diferentes frentes de hardware:
+- Dispositivos baseados em **Arduino Uno + ESP-01S** operando via Wi-Fi (Telemetria Térmica NTC).
+- **2 Dispositivos ESP32** operando via rádio **LoRa**, enviando dados de Temperatura e Umidade.
+
+### 9.1 Capacidade Atual e Gargalos
+A infraestrutura em nuvem está alocada em instâncias **Oracle Free Tier (AMD com 1GB de RAM)**. A VM1 (Ingestão/InfluxDB/Grafana) opera com 2GB de Swap, enquanto a VM2 (Django/PostgreSQL) roda sem Swap.
+
+Nas condições atuais (amostragem a cada 5 segundos, API Flask realizando validações síncronas no Django, e Gunicorn com 2 *workers*), o sistema suporta de forma fluida e resiliente a operação simultânea de **10 a 20 sensores**.
+Ultrapassar esse volume na arquitetura atual pode gerar saturação (bloqueio dos *workers* por I/O de rede lento), forçando os dispositivos a sofrerem *timeouts* e recorrerem frequentemente à gravação offline na EEPROM, atrasando o fluxo em tempo real.
+
+### 9.2 Caminhos para Escalabilidade
+Para expandir o projeto para centenas de nós na mesma infraestrutura *Free Tier*, os seguintes caminhos são recomendados:
+
+1. **Ajuste na Amostragem (Hardware):** Aumentar o intervalo de transmissão (ex: de 5 para 30 ou 60 segundos). Isso multiplica linearmente a capacidade de nós suportados sem mexer em código de servidor.
+2. **Cache de Validação (Software VM1):** Implementar um mecanismo de *cache in-memory* na API Flask para reter a validação das chaves do Django por alguns minutos, eliminando o atraso do *request* HTTP síncrono entre as VMs a cada recebimento de dado.
+3. **Workers Assíncronos (Infra VM1):** Substituir o modelo síncrono do Gunicorn por classes assíncronas (como *gevent*), permitindo que a API atenda milhares de requisições retidas pela latência de rede sem engarrafar a CPU.
+
+### 9.3 Teto Arquitetural (Limite Teórico)
+Aplicando integralmente os caminhos de escalabilidade descritos acima (amostragem em 60s, validação em cache e I/O assíncrono), o limite da arquitetura passa a ser restrito apenas pelos recursos físicos de CPU e RAM (1GB) das instâncias *Oracle Free Tier*.
+
+Neste cenário altamente otimizado, mantendo as mesmas duas máquinas virtuais e a mesma pilha de software (Flask, InfluxDB, Django, PostgreSQL), o teto arquitetural do sistema é estimado entre **5.000 a 10.000 dispositivos simultâneos**. Acima desse limiar, a pressão de memória do InfluxDB e da VM1 demandaria *upgrades* verticais (instâncias com 4GB a 8GB de RAM).
+
+## 10. Resultado de engenharia
+
+O resultado consolidado nas Fases 4 e 5 é um sistema altamente previsível, seguro e controlável. A borda faz o trabalho pesado de resiliência, a rede carrega apenas o necessário, o armazenamento de séries temporais lida com o volume de dados e o Portal Administrativo fornece a governança, segurança e estética necessárias para um produto de nível comercial.

@@ -48,12 +48,18 @@ O Grafana pega os dados guardados e desenha uma linha no gráfico. Quando a temp
 
 Para alguém da banca, dá para pensar no Grafana como um painel do carro: ele não cria a informação, só mostra de forma clara o que já está acontecendo no sistema.
 
-## 9. O que torna o projeto resiliente
+## 9. O Portal de Administração é o "Cofre e o Gerente"
+
+Ter gráficos é ótimo, mas como sabemos quais sensores são confiáveis? É aqui que entra o Portal em Django.
+
+Ele funciona como a recepção de um prédio comercial. Ele guarda as chaves de acesso no cofre (PostgreSQL) e garante que apenas sensores autorizados possam enviar dados. Além disso, ele oferece um visual de "aplicativo moderno" para que o gerente do sistema possa ver tudo de forma fácil e revogar acessos suspeitos com um clique.
+
+## 10. O que torna o projeto resiliente
 
 O ponto mais importante é este: mesmo sem internet, o sistema continua trabalhando.
 
 Ele não para de medir, não joga os dados fora e não depende de um serviço externo para lembrar do que aconteceu. Isso dá robustez ao projeto e evita lacunas na telemetria.
 
-## 10. Resumo final em uma frase
+## 11. Resumo final em uma frase
 
-O sensor sente o calor, guarda o que mediu se a internet cair, reencontra o tempo correto quando volta a se conectar e mostra tudo em um gráfico fácil de entender.
+O sensor sente o calor, guarda o que mediu se a internet cair, reencontra o tempo correto quando volta a conectar, o portal administrativo garante a segurança do acesso, e tudo é mostrado em um gráfico inteligente e bonito.
