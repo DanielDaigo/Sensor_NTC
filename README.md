@@ -2,7 +2,7 @@
 
 Sistema de telemetria térmica com nó de borda em Arduino/ESP-01S, API Python na Oracle Cloud, persistência em InfluxDB e visualização em Grafana.
 
-Status atual: Fase 4 consolidada. A arquitetura definitiva elimina os caminhos antigos de Vercel, Firestore e ThingSpeak e passa a operar com ingestão direta, bufferização local em EEPROM e sincronização retroativa quando a rede retorna.
+Status atual: Fase 5 consolidada. A arquitetura definitiva elimina os caminhos antigos de Vercel, Firestore e ThingSpeak e passa a operar com ingestão direta via API Python (VM1), bufferização local em EEPROM e sincronização retroativa. Conta agora com um Painel Administrativo em Django (VM2) para gestão da rede IoT.
 
 ## Visão rápida
 
@@ -11,7 +11,8 @@ Status atual: Fase 4 consolidada. A arquitetura definitiva elimina os caminhos a
 - Fallback em EEPROM quando a conectividade cai
 - API Python para ingestão na Oracle Cloud
 - Armazenamento em séries temporais com retenção de longo prazo
-- Painéis no Grafana para operação e demonstração
+- Painéis no Grafana para operação e demonstração (VM1)
+- Portal Administrativo e Dashboard em Django (VM2) para gestão de chaves e visualização consolidada
 
 ## Estrutura principal
 
@@ -54,7 +55,8 @@ curl http://seu-endpoint-oracle/api/health
 3. Se a rede estiver disponível, o dado é enviado imediatamente.
 4. Se a rede cair, a leitura entra em fila na EEPROM.
 5. Ao reconectar, a fila é descarregada com reconstrução temporal.
-6. O back-end grava a telemetria e o Grafana mostra a evolução.
+6. O back-end grava a telemetria no InfluxDB.
+7. O Grafana (VM1) e o Dashboard em Django (VM2) consomem esses dados para exibição em tempo real.
 
 ## Observações
 
