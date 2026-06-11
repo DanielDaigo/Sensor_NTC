@@ -18,12 +18,11 @@
 
 O projeto evoluiu de um simples script para uma arquitetura profissional de microsserviços. O código-fonte está distribuído nos seguintes repositórios:
 
-1. 💻 **[Backend API (VM1)](#)**: O Coração da Nuvem (Flask + InfluxDB + Grafana). Recebe e armazena os dados brutos.
-2. 🛡️ **[Portal Administrativo (VM2)](#)**: O Cérebro da Segurança (Django + PostgreSQL). Governança, cadastro de hardware e gestão de chaves de API.
-3. 🌡️ **[Nó de Borda A (Telemetria NTC)](#)**: Firmware em C++ para Arduino Uno + ESP-01S via Wi-Fi.
-4. 📡 **[Nó de Borda B (Gateway LoRa P2P)](#)**: Firmware avançado ESP32 para nós cegos em campo via rádio LoRa.
+1. 💻 **[Backend API (VM1)](https://github.com/DanielDaigo/iot_marica_backend)**: O Coração da Nuvem (Flask + InfluxDB + Grafana). Recebe e armazena os dados brutos.
+2. 🛡️ **[Portal Administrativo (VM2)](https://github.com/DanielDaigo/iot_marica)**: O Cérebro da Segurança (Django + PostgreSQL). Governança, cadastro de hardware e gestão de chaves de API.
+3. 🌡️ **[Nó de Borda A (Telemetria NTC)](https://github.com/DanielDaigo/Sensor_NTC)**: Firmware em C++ para Arduino Uno + ESP-01S via Wi-Fi.
+4. 📡 **[Nó de Borda B (Gateway LoRa P2P)](https://github.com/Cauan-Almeida/gateway-inteligente-esp32)**: Firmware avançado ESP32 para nós cegos em campo via rádio LoRa.
 
-*(Substitua os `#` pelos links reais dos seus repositórios do GitHub).*
 
 ---
 
